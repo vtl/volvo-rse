@@ -12,9 +12,10 @@
 #include <PrintEx.h>
 #include <due_can.h>
 
-StreamEx serial = SerialUSB;
+StreamEx serial = Serial;//USB;
 
-#define DISPLAY_ON 2
+#define DISPLAY_A_ON 2
+#define DISPLAY_B_ON 3
 
 void print_frame(const char *s, CAN_FRAME *in)
 {
@@ -48,11 +49,12 @@ void setup()
   Serial.begin(115200);
   serial.println("start");
   setup_canbus();
-  pinMode(DISPLAY_ON, INPUT_PULLUP);
+  pinMode(DISPLAY_A_ON, INPUT);//_PULLUP);
+  pinMode(DISPLAY_B_ON, INPUT);//_PULLUP);
   serial.println("done"); 
 }
 
-void send_frame(char *name, CANRaw *can, unsigned char *data)
+void send_frame(const char *name, CANRaw *can, unsigned char *data)
 {
   CAN_FRAME out;
 
@@ -66,59 +68,53 @@ void send_frame(char *name, CANRaw *can, unsigned char *data)
   can->sendFrame(out);
 }
 
-unsigned char on_a[4][9]  = {{ 0x03, 0x90, 0x06, 0x01, 0x01, 0x00, 0x00, 0x00, 4 },
-                             { 0x01, 0xb5, 0x07, 0x01, 0x01, 0x00, 0x00, 0x00, 160 },
-                             { 0x03, 0xA3, 0x08, 0x01, 0x01, 0x00, 0x00, 0x00, 100 },
-                             { 0x03, 0xB8, 0x09, 0x01, 0x00, 0x00, 0x00, 0x00, 0}};
+unsigned char on[4][9]  = {{ 0x03, 0x90, 0x06, 0x01, 0x01, 0x00, 0x00, 0x00, 4 },
+                           { 0x01, 0xb5, 0x07, 0x01, 0x01, 0x00, 0x00, 0x00, 160 },
+                           { 0x03, 0xA3, 0x08, 0x01, 0x01 /* 1=A,2=B */, 0x00, 0x00, 0x00, 100 },
+                           { 0x03, 0xB8, 0x09, 0x01, 0x00, 0x00, 0x00, 0x00, 0}};
 
-unsigned char on_b[4][9]  = {{ 0x03, 0x90, 0x06, 0x01, 0x01, 0x00, 0x00, 0x00, 4 },
-                             { 0x01, 0xb5, 0x07, 0x01, 0x01, 0x00, 0x00, 0x00, 160 },
-                             { 0x03, 0xA3, 0x08, 0x01, 0x02, 0x00, 0x00, 0x00, 100 },
-                             { 0x03, 0xB8, 0x09, 0x01, 0x00, 0x00, 0x00, 0x00, 0}};
-
-unsigned char off[2][9] = {{ 0x01, 0xb5, 0x0a, 0x01, 0x01, 0x00, 0x00, 0x00, 1 },
+unsigned char off[4][9] = {{ 0x01, 0xb5, 0x0a, 0x01, 0x01, 0x00, 0x00, 0x00, 1 },
                            { 0x03, 0x90, 0x0b, 0x01, 0x00, 0x00, 0x00, 0x00, 0 }};
 
-void do_display(bool status)
+#define A 1
+#define B 0
+
+void do_display(bool a, bool status)
 {
   static int seq_id = 1;
-  unsigned char *pa[8], *pb[8];
-  int n;
-
-  if (status) {
-    n = 4;
-    for (int i = 0; i < n; i++) {
-      pa[i] = on_a[i];
-      pb[i] = on_b[i];
-    }
-  } else {
-    n = 2;
-    for (int i = 0; i < n; i++) {
-      pa[i] = off[i];
-      pb[i] = off[i];
-    }
-  }
+  unsigned char *p;
+  int n = status ? 4 : 2;
 
   for (int i = 0; i < n; i++) {
-    pa[i][2] = seq_id;
-    pb[i][2] = seq_id;
-    seq_id++;
-    send_frame("A", &Can0, pa[i]);
-    send_frame("B", &Can1, pb[i]);
-    delay(pa[i][8] * 100);
+    p = status ? on[i] : off[i];
+    p[2] = seq_id++;
+    if (status && i == 2) {
+      p[4] = a ? 1 : 2; /* IR channel A/B */
+    }
+    send_frame(a ? "A" : "B", a ? &Can0 : &Can1, p);
+    delay(p[8] * 100);
   }
 }
 
 void loop()
 {
-  static bool last_display_status = false;
-  bool display_status = !digitalRead(DISPLAY_ON);
+  static bool last_display_status[2] = { false, false };
+  bool display_status[2];
+  
+  display_status[A]= !digitalRead(DISPLAY_A_ON);
+  display_status[B]= !digitalRead(DISPLAY_B_ON);
 
-  serial.printf("last_display_status %d, display_status %d\n", last_display_status, display_status);
+//  display_status[A]= digitalRead(DISPLAY_A_ON);
+//  display_status[B]= digitalRead(DISPLAY_B_ON);
 
-  if (last_display_status != display_status) {
-    last_display_status = display_status;
-    do_display(display_status);
+  serial.printf("A last_display_status %d, display_status %d\n", last_display_status[A], display_status[A]);
+  serial.printf("B last_display_status %d, display_status %d\n", last_display_status[B], display_status[B]);
+
+  for (int i = 0; i < 2; i++) {
+    if (last_display_status[i] != display_status[i]) {
+      last_display_status[i] = display_status[i];
+      do_display(i, display_status[i]);
+    }
   }
   delay(1000);
 }
