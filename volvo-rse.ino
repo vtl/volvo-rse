@@ -49,8 +49,8 @@ void setup()
   Serial.begin(115200);
   serial.println("start");
   setup_canbus();
-  pinMode(DISPLAY_A_ON, INPUT);//_PULLUP);
-  pinMode(DISPLAY_B_ON, INPUT);//_PULLUP);
+  pinMode(DISPLAY_A_ON, INPUT_PULLUP);
+  pinMode(DISPLAY_B_ON, INPUT_PULLUP);
   serial.println("done"); 
   delay(5000);
 }
