@@ -2,71 +2,47 @@
    VOLVO Rear Seat Entertainment display controller
 
    Pin 2 (pullup high): GND - on, +3.3 - off
+   Pin 3 (pullup high): GND - on, +3.3 - off
 
    Tested with headrest display from 2007 XC70.
    Codes snooped from 2006-08 XC90 DVD player
 
-   (c) 2018 Vitaly Mayatskikh <vitaly@gravicappa.info>
+   (c) 2018-2019 Vitaly Mayatskikh <vitaly@gravicappa.info>
 */
 
-#include <PrintEx.h>
-#include <due_can.h>
+//#define HAS_B
 
-StreamEx serial = Serial;//USB;
+#include <mcp_can.h>
+#include <SPI.h>
 
-#define DISPLAY_A_ON 3
-#define DISPLAY_B_ON 2
+MCP_CAN CAN0(10);
+#ifdef HAS_B
+MCP_CAN CAN1(11);
+#endif
 
-void print_frame(const char *s, CAN_FRAME *in)
-{
-  serial.printf("CAN_FRAME for %s ID 0x%lx: ", s, in->id);
-  for (int i = 0; i < 8; i++)
-    serial.printf("0x%02x ", in->data.byte[i]);
-  serial.printf("\n");
-}
-
-void can_callback(CAN_FRAME *in)
-{
-  print_frame("in", in);
-}
-
-void setup_canbus()
-{
-  serial.println("setup CAN-bus...\n");
-  Can0.begin(CAN_BPS_500K);
-  Can0.setRXFilter(0, 0, true);
-  Can0.setRXFilter(3, 0, false);
-  Can0.setGeneralCallback(can_callback);
-  Can1.begin(CAN_BPS_500K);
-  Can1.setRXFilter(0, 0, true);
-  Can1.setRXFilter(3, 0, false);
-  Can1.setGeneralCallback(can_callback);
-
-}
+#define DISPLAY_A_ON 2
+#define DISPLAY_B_ON 3
 
 void setup()
 {
   Serial.begin(115200);
-  serial.println("start");
-  setup_canbus();
+  Serial.println("setup CAN-bus...");
+
+  while (CAN0.begin(CAN_500KBPS) != CAN_OK) {
+    delay(250);
+  }
+  Serial.println("A OK!");
+
+#ifdef HAS_B
+  while (CAN1.begin(CAN_500KBPS) != CAN_OK) {
+    delay(250);
+  }
+  Serial.println("B OK!");
+#endif
+ 
   pinMode(DISPLAY_A_ON, INPUT_PULLUP);
   pinMode(DISPLAY_B_ON, INPUT_PULLUP);
-  serial.println("done"); 
-  delay(5000);
-}
-
-void send_frame(const char *name, CANRaw *can, unsigned char *data)
-{
-  CAN_FRAME out;
-
-  memset(out.data.bytes, 0, 8);
-  out.id = 0x0601;
-  out.extended = false;
-  out.priority = 4;
-  out.length = 8;
-  memcpy(out.data.byte, data, 8);
-  print_frame(name, &out);
-  can->sendFrame(out);
+  delay(5000); // give some time for monitors to init
 }
 
 unsigned char on[5][9]  = {{ 0x03, 0x90, 0x06, 0x01, 0x01, 0x00, 0x00, 0x00, 10 }, //40
@@ -78,8 +54,8 @@ unsigned char on[5][9]  = {{ 0x03, 0x90, 0x06, 0x01, 0x01, 0x00, 0x00, 0x00, 10 
 unsigned char off[2][9] = {{ 0x01, 0xb5, 0x0a, 0x01, 0x01, 0x00, 0x00, 0x00, 1 },
                            { 0x03, 0x90, 0x0b, 0x01, 0x00, 0x00, 0x00, 0x00, 0 }};
 
-#define A 1 // true
-#define B 0 // false
+#define A 1
+#define B 0
 
 void do_display(bool a, bool status)
 {
@@ -93,7 +69,12 @@ void do_display(bool a, bool status)
     if (status && i == 1) {
       p[4] = a ? 1 : 2; /* IR channel A/B */
     }
-    send_frame(a ? "A" : "B", a ? &Can1 : &Can0, p);
+    if (a)
+      CAN0.sendMsgBuf(0x601, 0, 8, p);
+#ifdef HAS_B
+    else
+      CAN1.sendMsgBuf(0x601, 0, 8, p);
+#endif
     delay((long)p[8] * 100);
   }
 }
@@ -106,18 +87,13 @@ void loop()
   display_status[A]= !digitalRead(DISPLAY_A_ON);
   display_status[B]= !digitalRead(DISPLAY_B_ON);
 
-//  display_status[A]= digitalRead(DISPLAY_A_ON);
-//  display_status[B]= digitalRead(DISPLAY_B_ON);
-
-//  serial.printf("A last_display_status %d, display_status %d\n", last_display_status[A], display_status[A]);
-//  serial.printf("B last_display_status %d, display_status %d\n", last_display_status[B], display_status[B]);
-
   for (int i = 0; i < 2; i++) {
     if (last_display_status[i] != display_status[i]) {
+      Serial.print("A last_display_status "); Serial.print(last_display_status[A]); Serial.print(" display_status "); Serial.println(display_status[A]);
+      Serial.print("B last_display_status "); Serial.print(last_display_status[B]); Serial.print(" display_status "); Serial.println(display_status[B]);
       last_display_status[i] = display_status[i];
       do_display(i, display_status[i]);
     }
   }
   delay(100);
 }
-
